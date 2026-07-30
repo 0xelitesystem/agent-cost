@@ -8,7 +8,7 @@ loops.py and is folded in by analyze().
 Token->dollar note: token counts come straight from the transcript's usage
 records, so model spend is as exact as the table is current. The ONLY
 approximation here is tool-result sizing for the bloat table: we don't get a
-token count for fed-back tool output, so we use chars/4 — the standard rough
+token count for fed-back tool output, so we use chars/4, the standard rough
 tokens-per-char for English/code. It's used for ranking offenders, never for
 the headline dollar figure.
 """
@@ -31,8 +31,8 @@ from .pricing import lookup_rate
 
 CHARS_PER_TOKEN = 4  # rough tokens-per-char for English/code; ranking only
 
-# A tool_result has to clear this to be worth naming as a bloat offender —
-# below ~2k chars it isn't meaningfully inflating later prompts.
+# A tool_result has to clear this to be worth naming as a bloat offender.
+# Below ~2k chars it isn't meaningfully inflating later prompts.
 BLOAT_MIN_CHARS = 2000
 
 
@@ -128,7 +128,7 @@ def _label_for(event) -> str:
 
 
 def _bloat_offenders(session: Session, top_n: int) -> list[BloatOffender]:
-    """Largest tool_result outputs — the file reads / command dumps that
+    """Largest tool_result outputs: the file reads / command dumps that
     bloated context. Ranked by size; only those clearing BLOAT_MIN_CHARS.
     """
     offenders: list[BloatOffender] = []
@@ -155,7 +155,7 @@ def _cache_stats(session: Session,
     savings: what cache reads would have cost at the full input rate minus
              what they actually cost at the cache-read rate (money the cache
              saved you).
-    left_on_table: what the fresh/uncached input cost — work that re-paid full
+    left_on_table: what the fresh/uncached input cost, work that re-paid full
              price and, with better cache reuse, some of which could have been
              a discounted read. A soft "headroom" figure, not a guarantee.
     """

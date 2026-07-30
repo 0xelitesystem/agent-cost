@@ -1,4 +1,4 @@
-"""Regenerate demo-session.jsonl — a synthetic transcript of an agent that
+"""Regenerate demo-session.jsonl, a synthetic transcript of an agent that
 burns money: a model mix, a 7x failing-command death-spiral, and one giant
 file read that bloats every prompt after it. Run: python examples/make_demo.py
 """
@@ -57,7 +57,7 @@ records = [
     asst_text("I'll wire up the new billing endpoint and run the suite.",
               model=SONNET, usage=usage(1200, 180, cw=2400, cr=0)),
 
-    # a big file read — the bloat offender (huge stdout fed back into context)
+    # a big file read: the bloat offender (huge stdout fed back into context)
     asst_tool("r1", "Read", {"file_path": f"{CWD}/src/generated/schema.py"},
               model=SONNET, usage=usage(900, 90, cr=2400)),
     result("r1", ("# auto-generated schema\n" + "field_%d: str = ''\n" * 1600)),
@@ -89,7 +89,7 @@ records = [
               model=SONNET, usage=usage(11500, 260, cr=4400)),
     result("final", "14 passed in 1.8s"),
 
-    asst_text("Tests pass now. The dependency was missing — installing it "
+    asst_text("Tests pass now. The dependency was missing, and installing it "
               "fixed the failing run.",
               model=SONNET, usage=usage(2100, 320, cr=4400)),
 ]

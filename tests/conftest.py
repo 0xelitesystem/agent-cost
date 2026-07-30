@@ -85,7 +85,7 @@ def unknown_model_transcript(tmp_path):
 
 @pytest.fixture
 def loop_transcript(tmp_path):
-    """Same Bash command repeated 6×, every one failing — a stuck retry."""
+    """Same Bash command repeated 6×, every one failing: a stuck retry."""
     records = [asst_text("starting", usage=usage(inp=1000, out=50))]
     for i in range(6):
         records.append(asst_tool(

@@ -1,8 +1,8 @@
-"""Runaway-loop / death-spiral detection — agent-cost's headline feature.
+"""Runaway-loop / death-spiral detection, agent-cost's headline feature.
 
 The pattern that silently 10x's a bill isn't expensive single calls; it's the
-agent getting stuck and repeating the SAME action over and over — re-running a
-failing command, re-reading the same file, retrying a broken edit — while every
+agent getting stuck and repeating the SAME action over and over (re-running a
+failing command, re-reading the same file, retrying a broken edit) while every
 iteration re-sends the (now bloated) context and pays for it again. Live
 circuit-breakers stop this in real time; agent-cost finds it after the fact in
 the transcript you already have.
@@ -11,7 +11,7 @@ Detection is deliberately simple and explainable (these are heuristics, never
 convictions): walk the tool calls in order, group maximal runs of the same
 signature (tool + salient arg, see Event.signature) that occur within a sliding
 window, and flag any run of MIN_REPEATS or more. A run where every repeat
-errored is the worst kind — a stuck retry — and is called out as such.
+errored is the worst kind, a stuck retry, and is called out as such.
 
 Wasted cost: the first attempt is legitimate work; everything after it in the
 run is the waste. We attribute the usage of the assistant turns that issued the

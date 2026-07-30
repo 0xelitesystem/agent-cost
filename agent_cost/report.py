@@ -66,7 +66,7 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
     tool_calls = session.tool_calls()
     out("")
     out(_paint("  agent-cost", _BOLD, _CYAN, enabled=color)
-        + _paint(" — where the tokens and money went", _DIM, enabled=color))
+        + _paint(", where the tokens and money went", _DIM, enabled=color))
     out(_paint(f"  session {title} · {len(session.events)} events"
                + (f" · {session.cwd}" if session.cwd else ""),
                _DIM, enabled=color))
@@ -77,7 +77,7 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         _YELLOW if result.total_cost < 10 else _RED)
     out(f"  {_paint('TOTAL EST. COST', _BOLD, enabled=color)}  "
         + _paint(_usd(result.total_cost), _BOLD, cost_style, enabled=color)
-        + (_paint("  (some rates unknown — verify)", _YELLOW, enabled=color)
+        + (_paint("  (some rates unknown, verify)", _YELLOW, enabled=color)
            if result.has_unknown_rates else ""))
     u = result.total_usage
     out(_paint(
@@ -97,10 +97,10 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         for loop in result.loops:
             tag = "stuck retry, all errored" if loop.all_errored else "repeated action"
             out(f"  {_paint('×' + str(loop.count), _RED, _BOLD, enabled=color)} "
-                f"{loop.tool_name} — {tag}")
+                f"{loop.tool_name}, {tag}")
             out(_paint(f"      {loop.signature}", _DIM, enabled=color))
             out(_paint(
-                f"      events {loop.start_index}–{loop.end_index} · "
+                f"      events {loop.start_index} to {loop.end_index} · "
                 f"~{_tok(loop.wasted_tokens)} tokens wasted · "
                 f"~{_usd(loop.wasted_cost)} burned",
                 _DIM, enabled=color))
@@ -234,7 +234,7 @@ def render_markdown(result: CostResult) -> str:
         f"- **Transcript:** `{Path(result.session.path).name}`",
         f"- **Project:** `{result.session.cwd or 'unknown'}`",
         f"- **Total est. cost:** {_usd(result.total_cost)}"
-        + ("  ⚠ some rates unknown — verify" if result.has_unknown_rates else ""),
+        + ("  ⚠ some rates unknown, verify" if result.has_unknown_rates else ""),
         f"- **Tokens:** {result.total_usage.total:,} "
         f"({result.total_usage.input_tokens:,} in / "
         f"{result.total_usage.output_tokens:,} out)",
@@ -249,8 +249,8 @@ def render_markdown(result: CostResult) -> str:
         for loop in result.loops:
             tag = "stuck retry (all errored)" if loop.all_errored else "repeated action"
             lines.append(
-                f"- **×{loop.count} {loop.tool_name}** — {tag} · "
-                f"events {loop.start_index}–{loop.end_index} · "
+                f"- **×{loop.count} {loop.tool_name}**, {tag} · "
+                f"events {loop.start_index} to {loop.end_index} · "
                 f"~{loop.wasted_tokens:,} tokens / {_usd(loop.wasted_cost)} wasted  "
                 f"\n  `{loop.signature}`")
         lines.append("")

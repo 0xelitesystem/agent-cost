@@ -3,8 +3,8 @@
 Format notes (observed against Claude Code 2.x transcripts):
 - Each line is a JSON object with a top-level "type".
 - "assistant" records carry message.content (a list of blocks: type=="text"
-  is prose, type=="tool_use" is a tool invocation with id/name/input) AND —
-  the part agent-cost cares about — message.model and message.usage. Usage
+  is prose, type=="tool_use" is a tool invocation with id/name/input) AND
+  the part agent-cost cares about: message.model and message.usage. Usage
   is recorded PER assistant record; a single logical turn can be split across
   several records, so we keep a USAGE event per record and let cost.py sum.
 - "user" records carry tool results: message.content blocks with

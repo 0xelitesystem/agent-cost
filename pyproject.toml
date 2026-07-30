@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "agent-cost"
 version = "0.1.0"
-description = "Read a finished agent session and explain where the tokens and money went — including runaway loops. No proxy, no setup."
+description = "Read a finished agent session and explain where the tokens and money went, including runaway loops. No proxy, no setup."
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"

@@ -5,12 +5,12 @@ A Session is an ordered list of Events. The shapes mirror agent-receipts
 needs two things receipts didn't track:
 
 - Token usage lives on ASSISTANT records (one Usage per assistant record;
-  a single logical turn can span several records — we keep them separate
+  a single logical turn can span several records, so we keep them separate
   and let cost.py sum them). So Event carries an optional `usage` and the
   `model` that produced it.
 - Tool RESULTS feed text back into the next prompt, which is what actually
   costs input tokens. We measure each result's size (chars) so the bloat
-  detector can name the offenders. Tokens are approximated as chars/4 —
+  detector can name the offenders. Tokens are approximated as chars/4;
   see cost.py for why that's good enough here.
 """
 
@@ -93,7 +93,7 @@ class Event:
         """A stable identity for loop detection: tool name + its salient arg.
 
         Two calls collapse to the same signature when they'd do the same
-        thing — same command, same file, same url, same query. That's what
+        thing: same command, same file, same url, same query. That's what
         a death-spiral repeats, so it's what we hash on.
         """
         if self.command:
@@ -180,7 +180,7 @@ class CacheStats:
 
     cache_read_tokens: int = 0
     cache_creation_tokens: int = 0
-    fresh_input_tokens: int = 0  # uncached input — could have been cache hits
+    fresh_input_tokens: int = 0  # uncached input; could have been cache hits
     estimated_savings: float = 0.0  # $ saved by reads vs. paying full input
     estimated_left_on_table: float = 0.0  # $ of fresh input that re-paid full price
 
@@ -201,7 +201,7 @@ class Loop:
     count: int
     start_index: int  # event index of the first repeat in the run
     end_index: int  # event index of the last repeat in the run
-    all_errored: bool  # every repeat came back is_error — a stuck retry
+    all_errored: bool  # every repeat came back is_error: a stuck retry
     wasted_tokens: int = 0  # output+input attributable to the redundant repeats
     wasted_cost: float = 0.0
 

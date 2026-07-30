@@ -1,4 +1,4 @@
-"""agent-cost — read a finished agent session and explain where the money went.
+"""agent-cost: read a finished agent session and explain where the money went.
 
 Usage:
   agent-cost report <transcript.jsonl | session-id-prefix | latest> [options]
@@ -13,7 +13,7 @@ Options:
   --fail-over USD   exit 1 if the estimated cost exceeds USD (gate/alert)
   --no-color        disable ANSI colors
 
-No proxy, no API key, no setup — it reads the transcript you already have.
+No proxy, no API key, no setup. It reads the transcript you already have.
 """
 
 from __future__ import annotations
@@ -82,7 +82,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
 
 
 def _cmd_top(args: argparse.Namespace) -> int:
-    """Rank recent sessions by estimated cost — 'which cost me the most?'."""
+    """Rank recent sessions by estimated cost: 'which cost me the most?'."""
     transcripts = discover_transcripts(args.project)
     if not transcripts:
         print("no transcripts found under ~/.claude/projects", file=sys.stderr)

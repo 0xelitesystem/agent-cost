@@ -7,11 +7,11 @@ should VERIFY against the provider's current price list, and override per-run
 with `--prices FILE` (a JSON file of the same shape) when they drift.
 
 Each entry has four rates:
-  input        — fresh (uncached) input tokens
-  output       — generated tokens
-  cache_write  — tokens written into the prompt cache (a one-time premium,
-                 conventionally ~1.25x input for a 5-minute cache)
-  cache_read   — tokens served from cache (a deep discount, ~0.1x input)
+  input:        fresh (uncached) input tokens
+  output:       generated tokens
+  cache_write:  tokens written into the prompt cache (a one-time premium,
+                conventionally ~1.25x input for a 5-minute cache)
+  cache_read:   tokens served from cache (a deep discount, ~0.1x input)
 
 Keys are matched by substring against the transcript's model id (so
 "claude-opus-4-..." picks up the "opus" tier without pinning a date),
@@ -21,7 +21,7 @@ flagged "rate unknown" in the report so you never silently trust a guess.
 
 from __future__ import annotations
 
-# Rates are USD per 1,000,000 tokens. APPROXIMATE DEFAULTS — verify these.
+# Rates are USD per 1,000,000 tokens. APPROXIMATE DEFAULTS. Verify these.
 # Ordered conceptually opus > sonnet > haiku; lookup sorts by key length so
 # more specific ids win over generic ones.
 PRICING: dict[str, dict[str, float]] = {
