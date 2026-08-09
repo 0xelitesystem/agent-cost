@@ -130,6 +130,10 @@ It parses the JSONL transcript (vendored parser, no dependencies), sums `message
 - More providers and model families in the default table
 - Tighter integration with the agent-receipts suite (cost + correctness in one pass)
 
+## More
+
+Part of a catalog of single-file browser tools and plain-language references, all MIT licensed and dependency-free: [0xelitesystem.github.io](https://0xelitesystem.github.io/). Built by [elitesystem.ai](https://elitesystem.ai).
+
 ## License
 
 MIT © 2026 Salman Ahsan
