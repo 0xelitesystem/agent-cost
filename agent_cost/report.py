@@ -67,8 +67,8 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
     out("")
     out(_paint("  agent-cost", _BOLD, _CYAN, enabled=color)
         + _paint(", where the tokens and money went", _DIM, enabled=color))
-    out(_paint(f"  session {title}  -  {len(session.events)} events"
-               + (f"  -  {session.cwd}" if session.cwd else ""),
+    out(_paint(f"  session {title} · {len(session.events)} events"
+               + (f" · {session.cwd}" if session.cwd else ""),
                _DIM, enabled=color))
     out("")
 
@@ -81,12 +81,12 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
            if result.has_unknown_rates else ""))
     u = result.total_usage
     out(_paint(
-        f"  {_tok(u.total)} tokens  -  {_tok(u.input_tokens)} in  -  "
-        f"{_tok(u.output_tokens)} out  -  {_tok(u.cache_read_input_tokens)} cache-read",
+        f"  {_tok(u.total)} tokens · {_tok(u.input_tokens)} in · "
+        f"{_tok(u.output_tokens)} out · {_tok(u.cache_read_input_tokens)} cache-read",
         _DIM, enabled=color))
     out(_paint(
-        f"  {_duration(result.duration_seconds)}  -  "
-        f"{len(result.session.usage_events())} turns  -  "
+        f"  {_duration(result.duration_seconds)} · "
+        f"{len(result.session.usage_events())} turns · "
         f"{len(tool_calls)} tool calls",
         _DIM, enabled=color))
     out("")
@@ -100,8 +100,8 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
                 f"{loop.tool_name}, {tag}")
             out(_paint(f"      {loop.signature}", _DIM, enabled=color))
             out(_paint(
-                f"      events {loop.start_index} to {loop.end_index}  -  "
-                f"~{_tok(loop.wasted_tokens)} tokens wasted  -  "
+                f"      events {loop.start_index} to {loop.end_index} · "
+                f"~{_tok(loop.wasted_tokens)} tokens wasted · "
                 f"~{_usd(loop.wasted_cost)} burned",
                 _DIM, enabled=color))
         out("")
@@ -114,8 +114,8 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
                                                    enabled=color)
             out(f"  {_usd(mc.total_cost):>10}  {mc.model}{flag}")
             out(_paint(
-                f"             {_tok(mc.usage.input_tokens)} in  -  "
-                f"{_tok(mc.usage.output_tokens)} out  -  "
+                f"             {_tok(mc.usage.input_tokens)} in · "
+                f"{_tok(mc.usage.output_tokens)} out · "
                 f"{_tok(mc.usage.cache_read_input_tokens)} cache-read",
                 _DIM, enabled=color))
         out("")
@@ -238,8 +238,8 @@ def render_markdown(result: CostResult) -> str:
         f"- **Tokens:** {result.total_usage.total:,} "
         f"({result.total_usage.input_tokens:,} in / "
         f"{result.total_usage.output_tokens:,} out)",
-        f"- **Duration:** {_duration(result.duration_seconds)}  -  "
-        f"{len(result.session.usage_events())} turns  -  "
+        f"- **Duration:** {_duration(result.duration_seconds)} · "
+        f"{len(result.session.usage_events())} turns · "
         f"{len(result.session.tool_calls())} tool calls",
         "",
     ]
@@ -249,8 +249,8 @@ def render_markdown(result: CostResult) -> str:
         for loop in result.loops:
             tag = "stuck retry (all errored)" if loop.all_errored else "repeated action"
             lines.append(
-                f"- **×{loop.count} {loop.tool_name}**, {tag}  -  "
-                f"events {loop.start_index} to {loop.end_index}  -  "
+                f"- **×{loop.count} {loop.tool_name}**, {tag} · "
+                f"events {loop.start_index} to {loop.end_index} · "
                 f"~{loop.wasted_tokens:,} tokens / {_usd(loop.wasted_cost)} wasted  "
                 f"\n  `{loop.signature}`")
         lines.append("")
@@ -285,8 +285,8 @@ def render_markdown(result: CostResult) -> str:
     lines += [
         "## Cache efficiency", "",
         f"- Hit ratio: {c.hit_ratio * 100:.0f}%",
-        f"- Read: {c.cache_read_tokens:,}  -  Written: {c.cache_creation_tokens:,} "
-        f" -  Fresh: {c.fresh_input_tokens:,}",
+        f"- Read: {c.cache_read_tokens:,} · Written: {c.cache_creation_tokens:,} "
+        f"· Fresh: {c.fresh_input_tokens:,}",
         f"- Estimated savings from cache reads: {_usd(c.estimated_savings)}",
         "",
     ]
