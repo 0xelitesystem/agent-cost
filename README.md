@@ -20,22 +20,22 @@ The tools that exist to stop this, Agent Firewall, AgentFuse, LiteLLM budget cap
 
 ```
   agent-cost, where the tokens and money went
-  session demo-session · 14 events · /home/dev/acme-api
+  session demo-session  -  14 events  -  /home/dev/acme-api
 
   TOTAL EST. COST  $1.46
-  174.7K tokens · 117.5K in · 3.6K out · 51.2K cache-read
-  1m 36s · 14 turns · 11 tool calls
+  174.7K tokens  -  117.5K in  -  3.6K out  -  51.2K cache-read
+  1m 36s  -  14 turns  -  11 tool calls
 
   ⚠ RUNAWAY LOOPS DETECTED
   ×8 Bash, repeated action
       Bash:python -m pytest tests/test_billing.py -q
-      events 3 to 12 · ~135.3K tokens wasted · ~$1.23 burned
+      events 3 to 12  -  ~135.3K tokens wasted  -  ~$1.23 burned
 
   COST BY MODEL
        $1.28  claude-opus-4-20250514
-             71.4K in · 2.2K out · 28.0K cache-read
+             71.4K in  -  2.2K out  -  28.0K cache-read
        $0.17  claude-sonnet-4-20250514
-             46.1K in · 1.3K out · 23.2K cache-read
+             46.1K in  -  1.3K out  -  23.2K cache-read
 
   TOP EXPENSIVE TURNS
        $0.20  event 9  claude-opus-4-20250514  (320 out)
@@ -108,7 +108,7 @@ The built-in pricing table holds **approximate defaults you should verify** agai
 
 ## Honest limitations
 
-- **Token→$ is an estimate from a static table.** Token *counts* come straight from the transcript's usage records, so they're exact; the dollar figure is only as current as the price table. Verify / override with `--prices`.
+- **Token->$ is an estimate from a static table.** Token *counts* come straight from the transcript's usage records, so they're exact; the dollar figure is only as current as the price table. Verify / override with `--prices`.
 - **Context-bloat sizing is approximate.** Tool results don't carry a token count, so offender ranking uses `chars / 4`, the standard rough tokens-per-char. It's used for ranking, never for the headline cost.
 - **Loop detection is heuristic.** It flags the same action (tool + salient argument) repeated within a window. A legitimately repeated command, a deliberate retry-until-ready, can look the same as a death-spiral. The report shows you the action, the count, and the event range so you can judge.
 

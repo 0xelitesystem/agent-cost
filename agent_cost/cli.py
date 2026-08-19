@@ -178,7 +178,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
-    # Windows consoles often default to cp1252, which can't print ⚠/×/·.
+    # Windows consoles often default to cp1252, which can't print ⚠/×/ - .
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             try:
