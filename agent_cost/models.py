@@ -38,6 +38,17 @@ class Usage:
     output_tokens: int = 0
     cache_creation_input_tokens: int = 0  # tokens written INTO the cache (a premium)
     cache_read_input_tokens: int = 0  # tokens served FROM cache (a discount)
+    # cache writes split by TTL (usage.cache_creation). They are a breakdown OF
+    # cache_creation_input_tokens, never an addition to it: 5-minute writes cost
+    # 1.25x input, 1-hour writes 2x, so the split changes the bill.
+    cache_creation_5m: int = 0
+    cache_creation_1h: int = 0
+    # billing modifiers carried on usage itself
+    speed: str = ""  # "fast" bills at fast-mode rates
+    inference_geo: str = ""  # "us" carries a 1.1x multiplier on every rate
+    # (model, Usage) per billed attempt when a response fell back to another
+    # model. Empty for the normal single-attempt case.
+    iterations: list = field(default_factory=list)
 
     @property
     def total(self) -> int:
@@ -49,6 +60,8 @@ class Usage:
         self.output_tokens += other.output_tokens
         self.cache_creation_input_tokens += other.cache_creation_input_tokens
         self.cache_read_input_tokens += other.cache_read_input_tokens
+        self.cache_creation_5m += other.cache_creation_5m
+        self.cache_creation_1h += other.cache_creation_1h
 
 
 @dataclass
@@ -66,6 +79,12 @@ class Event:
     # USAGE / assistant-record events
     model: str = ""
     usage: Usage | None = None
+    # Identity of the API response this record belongs to. Several records
+    # repeat one response's usage, so cost.py deduplicates on these; see
+    # dedup.py for the rule.
+    message_id: str = ""
+    request_id: str = ""
+    record_uuid: str = ""
 
     # TOOL_CALL events
     tool_name: str = ""
@@ -207,6 +226,23 @@ class Loop:
 
 
 @dataclass
+class Aggregate:
+    """Rolled-up cost over any set of deduplicated responses.
+
+    One session's analysis and a whole-machine scan produce the same shape,
+    so they go through the same code path and cannot drift apart.
+    """
+
+    total_usage: Usage = field(default_factory=Usage)
+    total_cost: float = 0.0
+    by_model: list[ModelCost] = field(default_factory=list)
+    top_turns: list[TurnCost] = field(default_factory=list)
+    unpriced_models: dict = field(default_factory=dict)
+    responses: int = 0
+    has_unknown_rates: bool = False
+
+
+@dataclass
 class CostResult:
     """Everything the cost analysis produced for one session."""
 
@@ -220,6 +256,11 @@ class CostResult:
     loops: list[Loop] = field(default_factory=list)
     duration_seconds: float | None = None
     has_unknown_rates: bool = False
+    # models that are not in the price table: tokens counted, dollars not
+    # guessed. {model id: number of responses}
+    unpriced_models: dict = field(default_factory=dict)
+    responses: int = 0  # distinct API responses counted
+    duplicate_lines_dropped: int = 0  # transcript lines that repeated a response
 
     @property
     def loop_wasted_cost(self) -> float:

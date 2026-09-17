@@ -7,7 +7,7 @@ def test_report_json_shape(simple_transcript, capsys):
     code = main(["report", simple_transcript, "--json"])
     assert code == 0
     payload = json.loads(capsys.readouterr().out)
-    assert round(payload["total_cost"], 2) == 27.00
+    assert round(payload["total_cost"], 2) == 21.00
     assert payload["total_usage"]["total"] == 2_200_000
     assert len(payload["by_model"]) == 2
     assert "cache" in payload
@@ -23,12 +23,12 @@ def test_report_json_includes_loop(loop_transcript, capsys):
 
 
 def test_fail_over_gates_expensive_sessions(simple_transcript, capsys):
-    # $27 session, budget $1 -> exit 1
+    # $21 session, budget $1 -> exit 1
     assert main(["report", simple_transcript, "--fail-over", "1", "--no-color"]) == 1
 
 
 def test_fail_over_passes_cheap_sessions(simple_transcript, capsys):
-    # $27 session, budget $100 -> exit 0
+    # $21 session, budget $100 -> exit 0
     assert main(["report", simple_transcript, "--fail-over", "100", "--no-color"]) == 0
 
 
@@ -47,8 +47,8 @@ def test_markdown_report(simple_transcript, tmp_path):
 def test_prices_override_via_cli(simple_transcript, tmp_path, capsys):
     prices = tmp_path / "prices.json"
     prices.write_text(json.dumps({
-        "sonnet": {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0},
-        "opus": {"input": 0, "output": 0, "cache_write": 0, "cache_read": 0},
+        "claude-sonnet-4-5": {"input": 0, "output": 0, "cache_read": 0},
+        "claude-opus-4-5": {"input": 0, "output": 0, "cache_read": 0},
     }), encoding="utf-8")
     main(["report", simple_transcript, "--prices", str(prices), "--json"])
     payload = json.loads(capsys.readouterr().out)
@@ -63,7 +63,7 @@ def test_unknown_rate_flag_in_json(unknown_model_transcript, capsys):
 
 def test_analyze_cost_library_entry(simple_transcript):
     result = analyze_cost(simple_transcript)
-    assert round(result.total_cost, 2) == 27.00
+    assert round(result.total_cost, 2) == 21.00
 
 
 def test_top_ranks_sessions_by_cost(simple_transcript, cache_transcript,
@@ -79,7 +79,7 @@ def test_top_ranks_sessions_by_cost(simple_transcript, cache_transcript,
     payload = json.loads(capsys.readouterr().out)
     costs = [row["total_cost"] for row in payload]
     assert costs == sorted(costs, reverse=True)
-    # the $27 simple session must rank first
+    # the $21 simple session must rank first
     assert payload[0]["transcript"] == str(Path(simple_transcript))
 
 

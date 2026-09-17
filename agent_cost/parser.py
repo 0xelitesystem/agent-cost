@@ -4,9 +4,14 @@ Format notes (observed against Claude Code 2.x transcripts):
 - Each line is a JSON object with a top-level "type".
 - "assistant" records carry message.content (a list of blocks: type=="text"
   is prose, type=="tool_use" is a tool invocation with id/name/input) AND
-  the part agent-cost cares about: message.model and message.usage. Usage
-  is recorded PER assistant record; a single logical turn can be split across
-  several records, so we keep a USAGE event per record and let cost.py sum.
+  the part agent-cost cares about: message.model and message.usage.
+- ONE API RESPONSE IS WRITTEN AS SEVERAL RECORDS, one per content block, and
+  every one of them REPEATS the same usage object. So the parser keeps each
+  record's usage AND the response identity (message.id, requestId, uuid) that
+  lets cost.py count that usage exactly once. See dedup.py; summing every
+  record was the bug that overstated real sessions by about 4.8x.
+- model "<synthetic>" marks a client-side placeholder (an API error, a local
+  notice). It was never an API call, so its usage is not counted.
 - "user" records carry tool results: message.content blocks with
   type=="tool_result" reference the tool_use id and include is_error. A
   sibling top-level "toolUseResult" holds richer data (stdout/stderr dict on
@@ -35,22 +40,51 @@ def _blocks(message: dict) -> list[dict]:
     return []
 
 
-def _parse_usage(message: dict) -> Usage | None:
-    """Pull message.usage into a Usage; missing fields are zero, not None."""
-    raw = message.get("usage")
-    if not isinstance(raw, dict):
-        return None
+def _usage_from_dict(raw: dict) -> Usage:
+    """Token fields of one usage object; missing fields are zero, not None."""
 
     def _int(key: str) -> int:
         val = raw.get(key)
         return val if isinstance(val, int) else 0
 
-    return Usage(
+    usage = Usage(
         input_tokens=_int("input_tokens"),
         output_tokens=_int("output_tokens"),
         cache_creation_input_tokens=_int("cache_creation_input_tokens"),
         cache_read_input_tokens=_int("cache_read_input_tokens"),
     )
+    # usage.cache_creation splits the writes by TTL. The rates differ
+    # (1.25x input for 5 minutes, 2x for 1 hour), so carry the split.
+    split = raw.get("cache_creation")
+    if isinstance(split, dict):
+        write_5m = split.get("ephemeral_5m_input_tokens")
+        write_1h = split.get("ephemeral_1h_input_tokens")
+        usage.cache_creation_5m = write_5m if isinstance(write_5m, int) else 0
+        usage.cache_creation_1h = write_1h if isinstance(write_1h, int) else 0
+    return usage
+
+
+def _parse_usage(message: dict) -> Usage | None:
+    """Pull message.usage into a Usage, with its billing modifiers."""
+    raw = message.get("usage")
+    if not isinstance(raw, dict):
+        return None
+    usage = _usage_from_dict(raw)
+    speed = raw.get("speed")
+    usage.speed = speed if isinstance(speed, str) else ""
+    geo = raw.get("inference_geo")
+    usage.inference_geo = geo if isinstance(geo, str) else ""
+    # A refusal fallback bills every attempt that produced output, each at the
+    # rates of the model that ran it. The top-level usage describes only the
+    # attempt that was served.
+    iterations = raw.get("iterations")
+    if isinstance(iterations, list) and len(iterations) > 1:
+        usage.iterations = [
+            (str(entry.get("model") or message.get("model") or ""),
+             _usage_from_dict(entry))
+            for entry in iterations if isinstance(entry, dict)
+        ]
+    return usage
 
 
 def _result_text(block: dict, tool_use_result) -> str:
@@ -104,7 +138,10 @@ def parse_transcript(path: str | Path) -> Session:
                 sidechain = bool(record.get("isSidechain"))
                 message = record.get("message", {})
                 model = str(message.get("model", "") or "")
-                usage = _parse_usage(message)
+                usage = None if model == "<synthetic>" else _parse_usage(message)
+                message_id = str(message.get("id", "") or "")
+                request_id = str(record.get("requestId", "") or "")
+                record_uuid = str(record.get("uuid", "") or "")
 
                 # The usage on this record belongs to the whole record, not to
                 # any single content block. We hang it on the first event we
@@ -126,6 +163,9 @@ def parse_transcript(path: str | Path) -> Session:
                             is_sidechain=sidechain,
                             text=text,
                             model=model,
+                            message_id=message_id,
+                            request_id=request_id,
+                            record_uuid=record_uuid,
                         )
                         if not usage_attached and usage is not None:
                             event.usage = usage
@@ -143,6 +183,9 @@ def parse_transcript(path: str | Path) -> Session:
                             tool_id=str(block.get("id", "")),
                             tool_input=tool_input if isinstance(tool_input, dict) else {},
                             model=model,
+                            message_id=message_id,
+                            request_id=request_id,
+                            record_uuid=record_uuid,
                         )
                         if not usage_attached and usage is not None:
                             event.usage = usage
@@ -161,6 +204,9 @@ def parse_transcript(path: str | Path) -> Session:
                         is_sidechain=sidechain,
                         model=model,
                         usage=usage,
+                        message_id=message_id,
+                        request_id=request_id,
+                        record_uuid=record_uuid,
                     ))
                     index += 1
 
@@ -189,7 +235,14 @@ def projects_dir() -> Path:
 
 
 def discover_transcripts(project_filter: str | None = None) -> list[Path]:
-    """All transcript files under ~/.claude/projects, newest first."""
+    """Every transcript under ~/.claude/projects, RECURSIVELY, newest first.
+
+    The top level of a project folder holds only the main thread. Subagents
+    live in <project>/<session>/subagents/agent-*.jsonl, workflow agents
+    another level down again, and all of them are real API spend. On a working
+    machine the top level held under 1% of the transcript files, so the old
+    non-recursive glob missed almost all of them.
+    """
     root = projects_dir()
     if not root.is_dir():
         return []
@@ -199,8 +252,15 @@ def discover_transcripts(project_filter: str | None = None) -> list[Path]:
             continue
         if project_filter and project_filter.lower() not in project.name.lower():
             continue
-        found.extend(project.glob("*.jsonl"))
-    return sorted(found, key=lambda p: p.stat().st_mtime, reverse=True)
+        found.extend(project.rglob("*.jsonl"))
+
+    def _mtime(path: Path) -> float:
+        try:
+            return path.stat().st_mtime
+        except OSError:
+            return 0.0
+
+    return sorted(found, key=_mtime, reverse=True)
 
 
 def resolve_target(target: str, project_filter: str | None = None) -> Path:

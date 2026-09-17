@@ -7,7 +7,7 @@ import os
 import sys
 from pathlib import Path
 
-from .models import CostResult
+from .models import Aggregate, CostResult
 
 _RESET = "\x1b[0m"
 _BOLD = "\x1b[1m"
@@ -77,7 +77,7 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         _YELLOW if result.total_cost < 10 else _RED)
     out(f"  {_paint('TOTAL EST. COST', _BOLD, enabled=color)}  "
         + _paint(_usd(result.total_cost), _BOLD, cost_style, enabled=color)
-        + (_paint("  (some rates unknown, verify)", _YELLOW, enabled=color)
+        + (_paint("  (some models unpriced, see below)", _YELLOW, enabled=color)
            if result.has_unknown_rates else ""))
     u = result.total_usage
     out(_paint(
@@ -86,9 +86,13 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         _DIM, enabled=color))
     out(_paint(
         f"  {_duration(result.duration_seconds)} · "
-        f"{len(result.session.usage_events())} turns · "
+        f"{result.responses} API responses · "
         f"{len(tool_calls)} tool calls",
         _DIM, enabled=color))
+    if result.duplicate_lines_dropped:
+        out(_paint(
+            f"  {result.duplicate_lines_dropped} transcript lines repeated a "
+            "response and were counted once", _DIM, enabled=color))
     out("")
 
     # ---- loop warnings up top (the headline) ------------------------------
@@ -110,8 +114,8 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
     if result.by_model:
         out(_paint("  COST BY MODEL", _BOLD, enabled=color))
         for mc in result.by_model:
-            flag = "" if mc.rate_known else _paint(" (rate unknown)", _YELLOW,
-                                                   enabled=color)
+            flag = "" if mc.rate_known else _paint(
+                " (unpriced, tokens only)", _YELLOW, enabled=color)
             out(f"  {_usd(mc.total_cost):>10}  {mc.model}{flag}")
             out(_paint(
                 f"             {_tok(mc.usage.input_tokens)} in · "
@@ -151,7 +155,75 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         _DIM, enabled=color))
     out("")
 
+    if result.unpriced_models:
+        out(_paint("  UNPRICED MODELS", _BOLD, _YELLOW, enabled=color)
+            + _paint("  (tokens counted, no rate in the table, nothing guessed)",
+                     _DIM, enabled=color))
+        for model, count in sorted(result.unpriced_models.items()):
+            out(f"  {count:>10}  {model}")
+        out(_paint("  supply rates with --prices FILE to cost these",
+                   _DIM, enabled=color))
+        out("")
+
     return "\n".join(lines)
+
+
+def render_total(rolled: Aggregate, transcripts: int, duplicate_lines: int,
+                 color: bool | None = None) -> str:
+    """Whole-machine view: every transcript, every response counted once."""
+    color = _colors_enabled() if color is None else color
+    lines: list[str] = []
+    out = lines.append
+    u = rolled.total_usage
+    out("")
+    out(_paint("  agent-cost", _BOLD, _CYAN, enabled=color)
+        + _paint(f", {transcripts:,} transcripts, "
+                 f"{rolled.responses:,} API responses", _DIM, enabled=color))
+    out("")
+    out(f"  {_paint('TOTAL EST. COST', _BOLD, enabled=color)}  "
+        + _paint(_usd(rolled.total_cost), _BOLD, _CYAN, enabled=color)
+        + (_paint("  (some models unpriced)", _YELLOW, enabled=color)
+           if rolled.has_unknown_rates else ""))
+    out(_paint(
+        f"  {_tok(u.total)} tokens · {_tok(u.input_tokens)} in · "
+        f"{_tok(u.output_tokens)} out · "
+        f"{_tok(u.cache_creation_input_tokens)} cache-write · "
+        f"{_tok(u.cache_read_input_tokens)} cache-read", _DIM, enabled=color))
+    if duplicate_lines:
+        out(_paint(f"  {duplicate_lines:,} repeated transcript lines counted once",
+                   _DIM, enabled=color))
+    out("")
+    if rolled.by_model:
+        out(_paint("  COST BY MODEL", _BOLD, enabled=color))
+        for mc in rolled.by_model:
+            flag = "" if mc.rate_known else _paint(" (unpriced, tokens only)",
+                                                   _YELLOW, enabled=color)
+            out(f"  {_usd(mc.total_cost):>12}  {mc.model}{flag}")
+            out(_paint(
+                f"               {_tok(mc.usage.input_tokens)} in · "
+                f"{_tok(mc.usage.output_tokens)} out · "
+                f"{_tok(mc.usage.cache_read_input_tokens)} cache-read",
+                _DIM, enabled=color))
+        out("")
+    return "\n".join(lines)
+
+
+def total_json(rolled: Aggregate, transcripts: int, duplicate_lines: int) -> str:
+    return json.dumps({
+        "transcripts": transcripts,
+        "responses": rolled.responses,
+        "duplicate_lines_dropped": duplicate_lines,
+        "total_cost": round(rolled.total_cost, 6),
+        "total_usage": _usage_dict(rolled.total_usage),
+        "has_unknown_rates": rolled.has_unknown_rates,
+        "unpriced_models": rolled.unpriced_models,
+        "by_model": [{
+            "model": m.model,
+            "rate_known": m.rate_known,
+            "total_cost": round(m.total_cost, 6),
+            "usage": _usage_dict(m.usage),
+        } for m in rolled.by_model],
+    }, indent=2)
 
 
 # ---- JSON ----------------------------------------------------------------
@@ -162,6 +234,8 @@ def _usage_dict(u) -> dict:
         "input_tokens": u.input_tokens,
         "output_tokens": u.output_tokens,
         "cache_creation_input_tokens": u.cache_creation_input_tokens,
+        "cache_creation_5m": u.cache_creation_5m,
+        "cache_creation_1h": u.cache_creation_1h,
         "cache_read_input_tokens": u.cache_read_input_tokens,
         "total": u.total,
     }
@@ -175,9 +249,11 @@ def render_json(result: CostResult) -> str:
         "total_cost": round(result.total_cost, 6),
         "total_usage": _usage_dict(result.total_usage),
         "duration_seconds": result.duration_seconds,
-        "turns": len(result.session.usage_events()),
+        "responses": result.responses,
+        "duplicate_lines_dropped": result.duplicate_lines_dropped,
         "tool_calls": len(result.session.tool_calls()),
         "has_unknown_rates": result.has_unknown_rates,
+        "unpriced_models": result.unpriced_models,
         "by_model": [{
             "model": m.model,
             "rate_known": m.rate_known,
@@ -234,12 +310,13 @@ def render_markdown(result: CostResult) -> str:
         f"- **Transcript:** `{Path(result.session.path).name}`",
         f"- **Project:** `{result.session.cwd or 'unknown'}`",
         f"- **Total est. cost:** {_usd(result.total_cost)}"
-        + ("  ⚠ some rates unknown, verify" if result.has_unknown_rates else ""),
+        + ("  (some models unpriced, tokens counted)"
+           if result.has_unknown_rates else ""),
         f"- **Tokens:** {result.total_usage.total:,} "
         f"({result.total_usage.input_tokens:,} in / "
         f"{result.total_usage.output_tokens:,} out)",
         f"- **Duration:** {_duration(result.duration_seconds)} · "
-        f"{len(result.session.usage_events())} turns · "
+        f"{result.responses} API responses · "
         f"{len(result.session.tool_calls())} tool calls",
         "",
     ]
@@ -258,7 +335,7 @@ def render_markdown(result: CostResult) -> str:
     lines += ["## Cost by model", "", "| Model | Cost | In | Out | Cache-read |",
               "|---|---|---|---|---|"]
     for m in result.by_model:
-        flag = "" if m.rate_known else " (rate unknown)"
+        flag = "" if m.rate_known else " (unpriced, tokens only)"
         lines.append(
             f"| `{m.model}`{flag} | {_usd(m.total_cost)} | "
             f"{m.usage.input_tokens:,} | {m.usage.output_tokens:,} | "

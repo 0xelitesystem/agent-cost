@@ -20,38 +20,39 @@ The tools that exist to stop this, Agent Firewall, AgentFuse, LiteLLM budget cap
 
 ```
   agent-cost, where the tokens and money went
-  session demo-session  -  14 events  -  /home/dev/acme-api
+  session demo-session · 22 events · /home/dev/acme-api
 
-  TOTAL EST. COST  $1.46
-  174.7K tokens  -  117.5K in  -  3.6K out  -  51.2K cache-read
-  1m 36s  -  14 turns  -  11 tool calls
+  TOTAL EST. COST  $0.61
+  176.3K tokens · 117.5K in · 3.6K out · 51.2K cache-read
+  2m 8s · 14 API responses · 11 tool calls
+  8 transcript lines repeated a response and were counted once
 
   ⚠ RUNAWAY LOOPS DETECTED
   ×8 Bash, repeated action
       Bash:python -m pytest tests/test_billing.py -q
-      events 3 to 12  -  ~135.3K tokens wasted  -  ~$1.23 burned
+      events 5 to 20 · ~136.9K tokens wasted · ~$0.49 burned
 
   COST BY MODEL
-       $1.28  claude-opus-4-20250514
-             71.4K in  -  2.2K out  -  28.0K cache-read
-       $0.17  claude-sonnet-4-20250514
-             46.1K in  -  1.3K out  -  23.2K cache-read
+       $0.43  claude-opus-4-5
+             71.4K in · 2.2K out · 28.0K cache-read
+       $0.18  claude-sonnet-4-5
+             46.1K in · 1.3K out · 23.2K cache-read
 
   TOP EXPENSIVE TURNS
-       $0.20  event 9  claude-opus-4-20250514  (320 out)
-       $0.19  event 8  claude-opus-4-20250514  (320 out)
+       $0.07  event 17  claude-opus-4-5  (320 out)
+       $0.06  event 15  claude-opus-4-5  (320 out)
        ...
 
   CONTEXT BLOAT OFFENDERS  (big tool outputs fed back into context)
-      7.6K tok  Read  event 1
+      7.6K tok  Read  event 2
              /home/dev/acme-api/src/generated/schema.py
 
   CACHE EFFICIENCY
-  hit ratio 30%  (51.2K read / 2.4K written / 117.5K fresh)
-  ~$0.44 saved by cache reads
+  hit ratio 30%  (51.2K read / 4.0K written / 117.5K fresh)
+  ~$0.19 saved by cache reads
 ```
 
-That's a real report of [`examples/demo-session.jsonl`](examples/demo-session.jsonl), an agent that retried one failing test command 7 times before noticing a missing dependency, while a single 6,400-line file read sat in context inflating every prompt. The loop alone burned ~$1.23 of a $1.46 session. Run it yourself:
+That's a real report of [`examples/demo-session.jsonl`](examples/demo-session.jsonl), an agent that retried one failing test command 7 times before noticing a missing dependency, while a single 6,400-line file read sat in context inflating every prompt. The loop alone burned ~$0.49 of a $0.61 session. Run it yourself:
 
 ```bash
 agent-cost report examples/demo-session.jsonl
@@ -73,6 +74,10 @@ agent-cost report latest
 agent-cost report ./examples/demo-session.jsonl
 agent-cost report 4f2a9c1               # session-id prefix
 
+# Everything on this machine, every response counted once
+agent-cost total
+agent-cost total --json
+
 # Which of my recent sessions cost the most?
 agent-cost top --limit 10
 
@@ -90,31 +95,46 @@ agent-cost report latest --fail-over 5.00
 agent-cost report latest --prices my-prices.json
 ```
 
-`--prices` takes a JSON file shaped like the built-in table, one entry per model key, rates in USD per million tokens:
+`--prices` takes a JSON file shaped like the built-in table, one entry per model id, rates in USD per million tokens:
 
 ```json
 {
-  "opus":   { "input": 15.0, "output": 75.0, "cache_write": 18.75, "cache_read": 1.50 },
-  "sonnet": { "input": 3.0,  "output": 15.0, "cache_write": 3.75,  "cache_read": 0.30 },
-  "haiku":  { "input": 0.80, "output": 4.0,  "cache_write": 1.0,   "cache_read": 0.08 }
+  "claude-opus-4-5":   { "input": 5.0, "output": 25.0, "cache_write_5m": 6.25, "cache_write_1h": 10.0, "cache_read": 0.50 },
+  "claude-sonnet-4-5": { "input": 3.0, "output": 15.0, "cache_write_5m": 3.75, "cache_write_1h": 6.0,  "cache_read": 0.30 }
 }
 ```
 
-Keys match by substring against the transcript's model id (longest key wins), so `sonnet` covers any `claude-...-sonnet-...` id without pinning a date.
+Keys match the transcript's model id EXACTLY, after normalization: one trailing bracket suffix (`[1m]`) and one trailing `-YYYYMMDD` date are stripped, so `claude-haiku-4-5-20251001` finds `claude-haiku-4-5`. Substring matching is gone, because it let an unrelated id silently borrow another model's rates. `input`, `output` and `cache_read` are required; the two cache-write rates default to the documented 1.25x (5 minute) and 2x (1 hour) multipliers of the input rate.
 
 ## A note on prices
 
-The built-in pricing table holds **approximate defaults you should verify** against the provider's current price list, prices change and the table is hand-maintained. Override per-run with `--prices FILE` whenever they drift. Unknown models fall back to a default rate and are flagged `(rate unknown)` in the report so an estimate is never silently trusted.
+Every rate in the built-in table was read off [Anthropic's pricing page](https://platform.claude.com/docs/en/about-claude/pricing) on **2026-09-14**, and `agent_cost/pricing.py` carries that date and the source URLs for the cache, fast-mode and data-residency rules it applies. Prices still change, so verify before you trust a figure, and override per-run with `--prices FILE`.
+
+A model that is not in the table is **unpriced**, not guessed: its tokens are counted, its id is listed under `UNPRICED MODELS`, and no dollar figure is invented for it. Earlier versions fell back to a mid-tier default rate, which produced a confident number for a model nobody had priced.
+
+## Counting: one API response, counted once
+
+Claude Code writes a single API response as SEVERAL JSONL records, one per content block, and every one of them repeats that response's `message.usage`. Summing usage record by record therefore counts the same tokens several times over. agent-cost counts each response once:
+
+- deduplicate by `message.id`, globally across every transcript, because a subagent file can carry a copy of a parent's response
+- fall back to `requestId`, then `uuid`, for a record that carries no message id
+- split a `message.id` that carries two different non-empty `requestId`s, which is a genuine retry billed twice
+- keep the record with the LARGEST `output_tokens`, because output is a running total and only the last record holds the final figure
+- walk `~/.claude/projects` RECURSIVELY: subagents live in `<project>/<session>/subagents/` and workflow agents a level below that, and they are real spend
+
+Versions before this one summed every record and looked only at the top level of each project folder. On a 689 MB real-world log set that read **$31,408** where the true API-equivalent figure was **$6,505**, a 4.8x overstatement: about 2.2x from double counting and another 2.2x from a stale Opus rate.
 
 ## Honest limitations
 
 - **Token->$ is an estimate from a static table.** Token *counts* come straight from the transcript's usage records, so they're exact; the dollar figure is only as current as the price table. Verify / override with `--prices`.
 - **Context-bloat sizing is approximate.** Tool results don't carry a token count, so offender ranking uses `chars / 4`, the standard rough tokens-per-char. It's used for ranking, never for the headline cost.
 - **Loop detection is heuristic.** It flags the same action (tool + salient argument) repeated within a window. A legitimately repeated command, a deliberate retry-until-ready, can look the same as a death-spiral. The report shows you the action, the count, and the event range so you can judge.
+- **The dollar figure is a lower bound.** It prices what the transcript records. Server-side tool calls that Claude Code never writes to the transcript, and anything billed outside the response record, are not in it.
+- **`report` and `top` deduplicate within one transcript; `total` deduplicates across all of them.** A response copied into a subagent file is counted once by `total` and once per file by the other two.
 
 ## How it works
 
-It parses the JSONL transcript (vendored parser, no dependencies), sums `message.usage` across every assistant record, prices each record against the table by `message.model`, sizes every tool result fed back into context, and walks the tool-call stream for repeated-signature runs. That's it, pure stdlib, no network.
+It parses the JSONL transcript (vendored parser, no dependencies), reduces the records to one per API response (see the counting rules above), prices each response against the table by `message.model`, including the 5-minute vs 1-hour cache-write split, fast-mode rates and the US data-residency multiplier when the usage block carries them, sizes every tool result fed back into context, and walks the tool-call stream for repeated-signature runs. That's it, pure stdlib, no network.
 
 ## Part of the agent accountability suite
 
@@ -128,6 +148,7 @@ It parses the JSONL transcript (vendored parser, no dependencies), sums `message
 
 - Auto-pull current provider prices (opt-in, still offline by default)
 - More providers and model families in the default table
+- Per-project and per-day breakdowns of `agent-cost total`
 - Tighter integration with the agent-receipts suite (cost + correctness in one pass)
 
 ## More

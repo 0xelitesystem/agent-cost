@@ -2,6 +2,7 @@
 
 Usage:
   agent-cost report <transcript.jsonl | session-id-prefix | latest> [options]
+  agent-cost total [--project NAME]
   agent-cost top [--project NAME] [--limit N]
   agent-cost list [--project NAME] [--limit N]
 
@@ -24,12 +25,20 @@ from datetime import datetime
 from pathlib import Path
 
 from . import __version__
-from .cost import analyze
+from .cost import aggregate, analyze, counted_responses
+from .dedup import ResponseIndex
 from .loops import detect_loops
 from .models import CostResult
 from .parser import discover_transcripts, parse_transcript, resolve_target
 from .pricing import load_prices
-from .report import _usd, render_json, render_markdown, render_terminal
+from .report import (
+    _usd,
+    render_json,
+    render_markdown,
+    render_terminal,
+    render_total,
+    total_json,
+)
 
 
 def analyze_cost(target: str, project: str | None = None,
@@ -78,6 +87,43 @@ def _cmd_report(args: argparse.Namespace) -> int:
     # gate: over-budget sessions exit non-zero so this can run in CI / alerts
     if args.fail_over is not None and result.total_cost > args.fail_over:
         return 1
+    return 0
+
+
+def _cmd_total(args: argparse.Namespace) -> int:
+    """Every transcript on the machine, every API response counted once.
+
+    This is the only view that deduplicates ACROSS files, which matters
+    because a subagent transcript can repeat a response from its parent.
+    """
+    transcripts = discover_transcripts(args.project)
+    if not transcripts:
+        print("no transcripts found under ~/.claude/projects", file=sys.stderr)
+        return 2
+    try:
+        prices = _load_prices_arg(args)
+    except (ValueError, OSError) as exc:
+        print(f"agent-cost: could not load prices: {exc}", file=sys.stderr)
+        return 2
+
+    index = ResponseIndex()
+    read = 0
+    for path in transcripts:
+        try:
+            session = parse_transcript(path)
+        except (OSError, ValueError):
+            continue
+        counted_responses(session, index)
+        read += 1
+    records = index.unique()
+    duplicates = index.lines_seen - len(records)
+    rolled = aggregate(records, prices)
+
+    if args.json:
+        print(total_json(rolled, read, duplicates))
+    else:
+        color = False if args.no_color else None
+        print(render_total(rolled, read, duplicates, color=color))
     return 0
 
 
@@ -161,6 +207,14 @@ def build_parser() -> argparse.ArgumentParser:
                         help="exit 1 if estimated cost exceeds USD (gate)")
     report.add_argument("--no-color", action="store_true", help="plain output")
     report.set_defaults(func=_cmd_report)
+
+    total = sub.add_parser(
+        "total", help="cost every transcript on this machine, deduplicated")
+    total.add_argument("--project", help="filter by project folder name")
+    total.add_argument("--prices", metavar="FILE", help="JSON pricing table override")
+    total.add_argument("--json", action="store_true", help="JSON output")
+    total.add_argument("--no-color", action="store_true", help="plain output")
+    total.set_defaults(func=_cmd_total)
 
     top = sub.add_parser("top", help="rank recent sessions by estimated cost")
     top.add_argument("--project", help="filter by project folder name")

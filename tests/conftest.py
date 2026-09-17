@@ -8,27 +8,45 @@ import json
 
 import pytest
 
-# pin model ids to the pricing tiers so expected dollars are computable by hand
-SONNET = "claude-sonnet-4-20250514"  # input 3 / output 15 / cw 3.75 / cr 0.30 per MTok
-OPUS = "claude-opus-4-20250514"      # input 15 / output 75 / cw 18.75 / cr 1.50 per MTok
-HAIKU = "claude-haiku-4-20250514"    # input 0.8 / output 4 / cw 1 / cr 0.08 per MTok
+# pin model ids to rows in the price table so expected dollars are computable
+# by hand. Lookup is exact after normalization, so these are real table ids.
+SONNET = "claude-sonnet-4-5"  # input 3 / output 15 / cw5m 3.75 / cr 0.30 per MTok
+OPUS = "claude-opus-4-5"      # input 5 / output 25 / cw5m 6.25 / cr 0.50 per MTok
+HAIKU = "claude-haiku-4-5"    # input 1 / output 5 / cw5m 1.25 / cr 0.10 per MTok
+
+_ids = {"n": 0}
 
 
-def asst_text(text, model=SONNET, usage=None, ts="2026-06-10T12:00:00.000Z"):
+def _identity():
+    """A fresh (message id, requestId) pair, one per logical API response."""
+    _ids["n"] += 1
+    return f"msg_{_ids['n']:03d}", f"req_{_ids['n']:03d}"
+
+
+def asst_text(text, model=SONNET, usage=None, ts="2026-06-10T12:00:00.000Z",
+              message_id=None, request_id=None):
+    mid, rid = _identity()
     return {
         "type": "assistant", "timestamp": ts,
         "sessionId": "fixture-session", "cwd": "C:\\fake\\project",
-        "message": {"role": "assistant", "model": model, "usage": usage or {},
+        "uuid": f"{message_id or mid}-{request_id or rid}-text",
+        "requestId": request_id or rid,
+        "message": {"id": message_id or mid, "role": "assistant", "model": model,
+                    "usage": usage or {},
                     "content": [{"type": "text", "text": text}]},
     }
 
 
 def asst_tool(tool_id, name, tool_input, model=SONNET, usage=None,
-              ts="2026-06-10T12:00:00.000Z"):
+              ts="2026-06-10T12:00:00.000Z", message_id=None, request_id=None):
+    mid, rid = _identity()
     return {
         "type": "assistant", "timestamp": ts,
         "sessionId": "fixture-session", "cwd": "C:\\fake\\project",
-        "message": {"role": "assistant", "model": model, "usage": usage or {},
+        "uuid": f"{message_id or mid}-{request_id or rid}-{tool_id}",
+        "requestId": request_id or rid,
+        "message": {"id": message_id or mid, "role": "assistant", "model": model,
+                    "usage": usage or {},
                     "content": [{"type": "tool_use", "id": tool_id,
                                  "name": name, "input": tool_input}]},
     }
@@ -57,11 +75,11 @@ def write_jsonl(path, records):
 
 @pytest.fixture
 def simple_transcript(tmp_path):
-    """Two turns, two models, KNOWN tokens for hand-checkable dollar math.
+    """Two responses, two models, KNOWN tokens for hand-checkable dollar math.
 
-    Sonnet turn: 1,000,000 in + 1,000,000 out  -> $3.00 + $15.00 = $18.00
-    Opus   turn:   100,000 in +   100,000 out  -> $1.50 +  $7.50 =  $9.00
-    Total = $27.00 exactly.
+    Sonnet: 1,000,000 in + 1,000,000 out -> $3.00 + $15.00 = $18.00
+    Opus:     100,000 in +   100,000 out -> $0.50 +  $2.50 =  $3.00
+    Total = $21.00 exactly.
     """
     records = [
         asst_text("Working on it.", model=SONNET,
@@ -118,3 +136,39 @@ def cache_transcript(tmp_path):
                   usage=usage(inp=0, out=1000, cw=100_000, cr=900_000)),
     ]
     return write_jsonl(tmp_path / "cache.jsonl", records)
+
+
+@pytest.fixture
+def repeated_response_transcript(tmp_path):
+    """ONE API response written as three records that repeat its usage.
+
+    This is the exact shape Claude Code writes and the exact shape that made
+    agent-cost overstate cost: output_tokens ramps up (300 -> 700 -> 1000) and
+    every record carries the same input/cache counts. The response is worth
+    1,000,000 in + 1,000 out on Sonnet = $3.015, NOT three times that.
+    """
+    mid, rid = "msg_repeat", "req_repeat"
+    records = [
+        asst_text("thinking", usage=usage(inp=1_000_000, out=300),
+                  message_id=mid, request_id=rid),
+        asst_tool("t1", "Bash", {"command": "pytest -q"},
+                  usage=usage(inp=1_000_000, out=700),
+                  message_id=mid, request_id=rid),
+        asst_text("done", usage=usage(inp=1_000_000, out=1000),
+                  message_id=mid, request_id=rid),
+        tool_result("t1", "ok"),
+    ]
+    return write_jsonl(tmp_path / "repeated.jsonl", records)
+
+
+@pytest.fixture
+def retry_transcript(tmp_path):
+    """One message id, TWO requestIds: a retry, genuinely billed twice."""
+    mid = "msg_retry"
+    records = [
+        asst_text("attempt one", usage=usage(inp=1_000_000, out=1000),
+                  message_id=mid, request_id="req_a"),
+        asst_text("attempt two", usage=usage(inp=1_000_000, out=1000),
+                  message_id=mid, request_id="req_b"),
+    ]
+    return write_jsonl(tmp_path / "retry.jsonl", records)

@@ -20,8 +20,9 @@ redundant repeats (count - 1 of them) as wasted tokens/$.
 
 from __future__ import annotations
 
+from .cost import response_cost
+from .dedup import dedupe, record_from_event
 from .models import EventKind, Loop, Session
-from .pricing import lookup_rate
 
 MIN_REPEATS = 3  # a run this long or longer is a loop
 WINDOW = 12  # repeats must fall within this many tool calls to count as one run
@@ -29,21 +30,18 @@ WINDOW = 12  # repeats must fall within this many tool calls to count as one run
 
 def _run_cost(session: Session, start_index: int, end_index: int,
               prices: dict[str, dict[str, float]] | None) -> tuple[int, float]:
-    """Tokens and $ for assistant usage in [start_index, end_index]."""
-    tokens = 0
-    cost = 0.0
-    for event in session.events:
-        if not (start_index <= event.index <= end_index):
-            continue
-        if event.usage is None:
-            continue
-        u = event.usage
-        tokens += u.total
-        rate, _ = lookup_rate(event.model, prices)
-        cost += (u.input_tokens / 1_000_000 * rate["input"]
-                 + u.output_tokens / 1_000_000 * rate["output"]
-                 + u.cache_creation_input_tokens / 1_000_000 * rate["cache_write"]
-                 + u.cache_read_input_tokens / 1_000_000 * rate["cache_read"])
+    """Tokens and $ for the API responses inside [start_index, end_index].
+
+    Deduplicated like everything else: a response written across five records
+    inside the run is one response, not five.
+    """
+    records = dedupe([
+        record_from_event(event, session.path)
+        for event in session.events
+        if event.usage is not None and start_index <= event.index <= end_index
+    ])
+    tokens = sum(r.usage.total for r in records)
+    cost = sum(response_cost(r.model, r.usage, prices) for r in records)
     return tokens, cost
 
 
