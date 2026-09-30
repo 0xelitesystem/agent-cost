@@ -32,6 +32,7 @@ from .models import CostResult
 from .parser import discover_transcripts, parse_transcript, resolve_target
 from .pricing import load_prices
 from .report import (
+    _safe,
     _usd,
     render_json,
     render_markdown,
@@ -167,8 +168,8 @@ def _cmd_top(args: argparse.Namespace) -> int:
     print(f"  {'COST':>10}  {'LOOPS':>5}  SESSION   PROJECT")
     for cost, path, res in rows:
         loop_flag = f"{len(res.loops)}" if res.loops else "-"
-        print(f"  {_usd(cost):>10}  {loop_flag:>5}  {path.stem[:8]}  "
-              f"{path.parent.name}")
+        print(f"  {_usd(cost):>10}  {loop_flag:>5}  {_safe(path.stem[:8])}  "
+              f"{_safe(path.parent.name)}")
     print()
     return 0
 
@@ -181,8 +182,8 @@ def _cmd_list(args: argparse.Namespace) -> int:
     for path in transcripts:
         mtime = datetime.fromtimestamp(path.stat().st_mtime)
         size_kb = path.stat().st_size // 1024
-        print(f"{path.stem[:8]}  {mtime:%Y-%m-%d %H:%M}  {size_kb:>6} KB  "
-              f"{path.parent.name}")
+        print(f"{_safe(path.stem[:8])}  {mtime:%Y-%m-%d %H:%M}  {size_kb:>6} KB  "
+              f"{_safe(path.parent.name)}")
     return 0
 
 

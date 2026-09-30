@@ -41,6 +41,7 @@ from .models import (
     Usage,
 )
 from .pricing import lookup_rate, normalize_model
+from .redact import redact_secrets
 
 CHARS_PER_TOKEN = 4  # rough tokens-per-char for English/code; ranking only
 
@@ -230,15 +231,19 @@ def analyze(session: Session, prices: dict[str, dict[str, float]] | None = None,
 
 
 def _label_for(event) -> str:
-    """A short human label for the action behind a tool_result."""
+    """A short human label for the action behind a tool_result.
+
+    Secret-shaped values are masked before the label is stored, because it is
+    copied into reports that get shared.
+    """
     if event.command:
-        return " ".join(event.command.split())[:80]
+        return redact_secrets(" ".join(event.command.split()))[:80]
     if event.file_path:
-        return event.file_path
+        return redact_secrets(event.file_path)
     for key in ("url", "pattern", "query"):
         val = event.tool_input.get(key)
         if val:
-            return str(val)[:80]
+            return redact_secrets(str(val))[:80]
     return event.tool_name
 
 

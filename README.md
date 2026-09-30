@@ -58,6 +58,8 @@ That's a real report of [`examples/demo-session.jsonl`](examples/demo-session.js
 agent-cost report examples/demo-session.jsonl
 ```
 
+Reports mask common credential shapes (tokens, keys, passwords, authorization headers), but masking is pattern based: review a report before you share it.
+
 ## Install
 
 ```bash

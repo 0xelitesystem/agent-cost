@@ -77,7 +77,9 @@ GEO_US_MODELS = frozenset({
 
 RATE_FIELDS = ("input", "output", "cache_write_5m", "cache_write_1h", "cache_read")
 
-_BRACKET_SUFFIX = re.compile(r"\[[^\]]*\]$")
+# '[' is excluded inside the brackets so a run of unclosed '[' is scanned once,
+# not once per '[' (that was quadratic on a crafted model id).
+_BRACKET_SUFFIX = re.compile(r"\[[^\[\]]*\]$")
 _DATE_SUFFIX = re.compile(r"-\d{8}$")
 
 

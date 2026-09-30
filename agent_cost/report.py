@@ -4,10 +4,68 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
 from .models import Aggregate, CostResult
+
+# Text from a transcript is untrusted: a command, path, url, model id or cwd
+# can carry escape sequences that would drive the terminal (rewrite the
+# clipboard, redraw the report, retitle the window) or Markdown that would
+# forge headings and links in a shared report. It is made inert where it is
+# written out.
+_TERMINAL_UNSAFE = re.compile(
+    r"[\x00-\x08\x0b-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_LINE_BREAKING = re.compile(
+    r"[\x00-\x1f\x7f-\x9f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069"
+    r"\u2028\u2029]+")
+# '[', ']', '|' and '`', plus a backslash only where it would escape the next
+# character (before ASCII punctuation), so a Windows path is written as is.
+_MD_PUNCTUATION = re.compile(r"(\\(?=[!-/:-@\[-\x60{-~])|[\[\]|`])")
+_BACKTICK_RUN = re.compile(r"`+")
+
+
+def _escape_char(match: re.Match) -> str:
+    code = ord(match.group())
+    return f"\\x{code:02x}" if code < 0x100 else f"\\u{code:04x}"
+
+
+def _safe(value) -> str:
+    """Transcript text for the terminal: control characters (tab and newline
+    aside), DEL, C1 and bidi controls are shown as escapes, never obeyed."""
+    return _TERMINAL_UNSAFE.sub(_escape_char, str(value))
+
+
+def _md_line(value) -> str:
+    """Transcript text on one Markdown line: line breaks and other control
+    characters collapse to a single space."""
+    return _LINE_BREAKING.sub(" ", str(value)).strip()
+
+
+def _md_text(value) -> str:
+    """Transcript text as inert Markdown prose on one line: '<' and '>' become
+    entities so no HTML tag or autolink can form, and the characters that
+    build links and images, split table cells or open and close code spans
+    are backslash-escaped. A backtick is one of them: a lone one in a tool
+    name would otherwise pair with a backtick inside the loop signature's
+    code span and end that span early. '&', '_' and '*' are left alone so
+    ordinary urls and paths render unchanged."""
+    text = _md_line(value).replace("<", "&lt;").replace(">", "&gt;")
+    return _MD_PUNCTUATION.sub(r"\\\1", text)
+
+
+def _md_code(value, in_table: bool = False) -> str:
+    """Transcript text as a Markdown code span that nothing inside can close:
+    the fence is one backtick longer than the longest run in the text."""
+    text = _md_line(value)
+    if in_table:
+        text = text.replace("|", "\\|")
+    longest = max((len(run) for run in _BACKTICK_RUN.findall(text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return f"{fence}{pad}{text}{pad}{fence}"
+
 
 _RESET = "\x1b[0m"
 _BOLD = "\x1b[1m"
@@ -62,13 +120,13 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
     lines: list[str] = []
     out = lines.append
 
-    title = session.slug or Path(session.path).stem[:12]
+    title = _safe(session.slug or Path(session.path).stem[:12])
     tool_calls = session.tool_calls()
     out("")
     out(_paint("  agent-cost", _BOLD, _CYAN, enabled=color)
         + _paint(", where the tokens and money went", _DIM, enabled=color))
     out(_paint(f"  session {title} · {len(session.events)} events"
-               + (f" · {session.cwd}" if session.cwd else ""),
+               + (f" · {_safe(session.cwd)}" if session.cwd else ""),
                _DIM, enabled=color))
     out("")
 
@@ -101,8 +159,8 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         for loop in result.loops:
             tag = "stuck retry, all errored" if loop.all_errored else "repeated action"
             out(f"  {_paint('×' + str(loop.count), _RED, _BOLD, enabled=color)} "
-                f"{loop.tool_name}, {tag}")
-            out(_paint(f"      {loop.signature}", _DIM, enabled=color))
+                f"{_safe(loop.tool_name)}, {tag}")
+            out(_paint(f"      {_safe(loop.signature)}", _DIM, enabled=color))
             out(_paint(
                 f"      events {loop.start_index} to {loop.end_index} · "
                 f"~{_tok(loop.wasted_tokens)} tokens wasted · "
@@ -116,7 +174,7 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         for mc in result.by_model:
             flag = "" if mc.rate_known else _paint(
                 " (unpriced, tokens only)", _YELLOW, enabled=color)
-            out(f"  {_usd(mc.total_cost):>10}  {mc.model}{flag}")
+            out(f"  {_usd(mc.total_cost):>10}  {_safe(mc.model)}{flag}")
             out(_paint(
                 f"             {_tok(mc.usage.input_tokens)} in · "
                 f"{_tok(mc.usage.output_tokens)} out · "
@@ -129,7 +187,7 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         out(_paint("  TOP EXPENSIVE TURNS", _BOLD, enabled=color))
         for t in result.top_turns:
             out(f"  {_usd(t.cost):>10}  event {t.event_index}  "
-                f"{_paint(t.model, _DIM, enabled=color)}  "
+                f"{_paint(_safe(t.model), _DIM, enabled=color)}  "
                 + _paint(f"({_tok(t.usage.output_tokens)} out)", _DIM, enabled=color))
         out("")
 
@@ -138,9 +196,9 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
         out(_paint("  CONTEXT BLOAT OFFENDERS", _BOLD, enabled=color)
             + _paint("  (big tool outputs fed back into context)", _DIM, enabled=color))
         for b in result.bloat_offenders:
-            out(f"  {_tok(b.approx_tokens):>8} tok  {b.tool_name}  "
+            out(f"  {_tok(b.approx_tokens):>8} tok  {_safe(b.tool_name)}  "
                 + _paint(f"event {b.event_index}", _DIM, enabled=color))
-            out(_paint(f"             {b.label}", _DIM, enabled=color))
+            out(_paint(f"             {_safe(b.label)}", _DIM, enabled=color))
         out("")
 
     # ---- cache efficiency -------------------------------------------------
@@ -160,7 +218,7 @@ def render_terminal(result: CostResult, color: bool | None = None) -> str:
             + _paint("  (tokens counted, no rate in the table, nothing guessed)",
                      _DIM, enabled=color))
         for model, count in sorted(result.unpriced_models.items()):
-            out(f"  {count:>10}  {model}")
+            out(f"  {count:>10}  {_safe(model)}")
         out(_paint("  supply rates with --prices FILE to cost these",
                    _DIM, enabled=color))
         out("")
@@ -198,7 +256,7 @@ def render_total(rolled: Aggregate, transcripts: int, duplicate_lines: int,
         for mc in rolled.by_model:
             flag = "" if mc.rate_known else _paint(" (unpriced, tokens only)",
                                                    _YELLOW, enabled=color)
-            out(f"  {_usd(mc.total_cost):>12}  {mc.model}{flag}")
+            out(f"  {_usd(mc.total_cost):>12}  {_safe(mc.model)}{flag}")
             out(_paint(
                 f"               {_tok(mc.usage.input_tokens)} in · "
                 f"{_tok(mc.usage.output_tokens)} out · "
@@ -307,8 +365,8 @@ def render_markdown(result: CostResult) -> str:
     lines = [
         "# agent-cost report",
         "",
-        f"- **Transcript:** `{Path(result.session.path).name}`",
-        f"- **Project:** `{result.session.cwd or 'unknown'}`",
+        f"- **Transcript:** {_md_code(Path(result.session.path).name)}",
+        f"- **Project:** {_md_code(result.session.cwd or 'unknown')}",
         f"- **Total est. cost:** {_usd(result.total_cost)}"
         + ("  (some models unpriced, tokens counted)"
            if result.has_unknown_rates else ""),
@@ -326,10 +384,10 @@ def render_markdown(result: CostResult) -> str:
         for loop in result.loops:
             tag = "stuck retry (all errored)" if loop.all_errored else "repeated action"
             lines.append(
-                f"- **×{loop.count} {loop.tool_name}**, {tag} · "
+                f"- **×{loop.count} {_md_text(loop.tool_name)}**, {tag} · "
                 f"events {loop.start_index} to {loop.end_index} · "
                 f"~{loop.wasted_tokens:,} tokens / {_usd(loop.wasted_cost)} wasted  "
-                f"\n  `{loop.signature}`")
+                f"\n  {_md_code(loop.signature)}")
         lines.append("")
 
     lines += ["## Cost by model", "", "| Model | Cost | In | Out | Cache-read |",
@@ -337,7 +395,7 @@ def render_markdown(result: CostResult) -> str:
     for m in result.by_model:
         flag = "" if m.rate_known else " (unpriced, tokens only)"
         lines.append(
-            f"| `{m.model}`{flag} | {_usd(m.total_cost)} | "
+            f"| {_md_code(m.model, in_table=True)}{flag} | {_usd(m.total_cost)} | "
             f"{m.usage.input_tokens:,} | {m.usage.output_tokens:,} | "
             f"{m.usage.cache_read_input_tokens:,} |")
     lines.append("")
@@ -346,7 +404,8 @@ def render_markdown(result: CostResult) -> str:
         lines += ["## Top expensive turns", "", "| Event | Model | Cost |",
                   "|---|---|---|"]
         for t in result.top_turns:
-            lines.append(f"| {t.event_index} | `{t.model}` | {_usd(t.cost)} |")
+            lines.append(f"| {t.event_index} | {_md_code(t.model, in_table=True)} | "
+                         f"{_usd(t.cost)} |")
         lines.append("")
 
     if result.bloat_offenders:
@@ -354,9 +413,8 @@ def render_markdown(result: CostResult) -> str:
                   "| Event | Tool | Approx tokens | Source |",
                   "|---|---|---|---|"]
         for b in result.bloat_offenders:
-            label = b.label.replace("|", "\\|")
-            lines.append(f"| {b.event_index} | {b.tool_name} | "
-                         f"{b.approx_tokens:,} | {label} |")
+            lines.append(f"| {b.event_index} | {_md_text(b.tool_name)} | "
+                         f"{b.approx_tokens:,} | {_md_text(b.label)} |")
         lines.append("")
 
     lines += [

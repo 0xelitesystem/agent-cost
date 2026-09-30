@@ -23,6 +23,7 @@ from __future__ import annotations
 from .cost import response_cost
 from .dedup import dedupe, record_from_event
 from .models import EventKind, Loop, Session
+from .redact import redact_secrets
 
 MIN_REPEATS = 3  # a run this long or longer is a loop
 WINDOW = 12  # repeats must fall within this many tool calls to count as one run
@@ -77,7 +78,8 @@ def detect_loops(session: Session,
                 prices,
             )
             loops.append(Loop(
-                signature=sig[:100],
+                # masked before it is stored: it is copied into shared reports
+                signature=redact_secrets(sig)[:100],
                 tool_name=start_event.tool_name,
                 count=len(members),
                 start_index=start_event.index,
