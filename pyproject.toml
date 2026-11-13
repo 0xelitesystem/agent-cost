@@ -9,7 +9,7 @@ description = "Read a finished agent session and explain where the tokens and mo
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.10"
-authors = [{ name = "Salman Ahsan (RBL)" }]
+authors = [{ name = "RBL Industries" }]
 keywords = ["ai-agents", "claude-code", "finops", "cost", "observability", "devtools"]
 classifiers = [
   "Development Status :: 4 - Beta",

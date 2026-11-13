@@ -10,7 +10,7 @@ Zero dependencies. Pure Python stdlib. Works offline, nothing leaves your machin
 
 ## The problem
 
-Agents make unbounded LLM calls on your behalf. Most of the time that's fine; sometimes the agent gets stuck, re-running the same failing command, re-reading the same file, retrying a broken edit, and every iteration re-sends the (now bloated) context and pays for it again. That's the failure mode behind the [widely-reported](https://www.theregister.com/2025/04/16/cursor_ai_support_bot/) class of surprise four- and five-figure bills, and runaway cost consistently ranks at the top of the risks teams cite when agent projects stall.
+Agents make unbounded LLM calls on your behalf. Most of the time that's fine; sometimes the agent gets stuck, re-running the same failing command, re-reading the same file, retrying a broken edit, and every iteration re-sends the (now bloated) context and pays for it again. That's the failure mode behind the [widely-reported](https://www.theregister.com/2025/04/18/cursor_ai_support_bot_lies/) class of surprise four- and five-figure bills, and runaway cost consistently ranks at the top of the risks teams cite when agent projects stall.
 
 The tools that exist to stop this, Agent Firewall, AgentFuse, LiteLLM budget caps, are **live, preventive proxies**: you install them *in front of* your API and they cut calls off in real time. Useful, but they're infrastructure you have to set up before the fact.
 
@@ -159,4 +159,4 @@ Part of a catalog of single-file browser tools and plain-language references, al
 
 ## License
 
-MIT © 2026 Salman Ahsan
+MIT © 2026 RBL Industries LLC
